@@ -7,19 +7,225 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen pb-24">
+<body class="bg-slate-50 text-slate-900 min-h-screen pb-20">
   <div class="max-w-xl mx-auto p-4 space-y-5">
-    <!-- Header -->
     <header class="text-center pt-2">
-      <h1 class="text-2xl font-bold text-slate-900">KDP Coloring Book Maker</h1>
-      <p class="text-sm text-slate-500 mt-1">100% Offline Browser Tool • Print-Ready PDF</p>
+      <h1 class="text-2xl font-bold">KDP Coloring Book Maker</h1>
+      <p class="text-sm text-slate-500 mt-1">100% Browser Tool • Print-Ready PDF</p>
     </header>
 
-    <!-- Upload Section -->
     <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="font-semibold text-base">1. Upload Coloring Pages</h2>
         <button id="clearAllBtn" class="text-xs text-red-600 font-medium hidden">Clear All</button>
       </div>
       <label class="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-indigo-300 rounded-xl bg-indigo-50/50 cursor-pointer active:bg-indigo-100">
-        <span class="text-indigo-600
+        <span class="text-indigo-600 font-semibold text-sm">+ Tap to Select Images</span>
+        <span class="text-xs text-slate-500 mt-1">PNG, JPG, WEBP (Multiple allowed)</span>
+        <input id="fileInput" type="file" accept="image/*" multiple class="hidden" />
+      </label>
+      <div id="imageList" class="grid grid-cols-2 gap-3 pt-1"></div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
+      <h2 class="font-semibold text-base">2. KDP Print Settings</h2>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Trim Size</label>
+        <select id="trimSize" class="w-full rounded-xl border border-slate-300 p-2.5 text-sm bg-white">
+          <option value="8.5x11" selected>8.5 x 11 inches (Standard)</option>
+          <option value="8.5x8.5">8.5 x 8.5 inches (Bold & Easy)</option>
+        </select>
+      </div>
+      <div>
+        <div class="flex justify-between text-sm mb-1">
+          <label class="font-medium text-slate-700">Safe Margin</label>
+          <span id="marginVal" class="font-semibold text-indigo-600">0.50 in</span>
+        </div>
+        <input id="marginRange" type="range" min="0.375" max="0.75" step="0.025" value="0.5" class="w-full accent-indigo-600" />
+      </div>
+      <div class="space-y-3 pt-1">
+        <label class="flex items-center justify-between">
+          <div><div class="text-sm font-medium">Single-Sided (Blank Pages)</div><div class="text-xs text-slate-500">Insert blank page after each image</div></div>
+          <input id="singleSided" type="checkbox" checked class="w-5 h-5 accent-indigo-600" />
+        </label>
+        <label class="flex items-center justify-between">
+          <div><div class="text-sm font-medium">"This Book Belongs To" Page</div><div class="text-xs text-slate-500">Adds title page + blank back page</div></div>
+          <input id="frontMatter" type="checkbox" checked class="w-5 h-5 accent-indigo-600" />
+        </label>
+        <label class="flex items-center justify-between">
+          <div><div class="text-sm font-medium">Thin Black Border Frame</div><div class="text-xs text-slate-500">Draws clean box inside margins</div></div>
+          <input id="addBorder" type="checkbox" class="w-5 h-5 accent-indigo-600" />
+        </label>
+        <label class="flex items-center justify-between">
+          <div><div class="text-sm font-medium">Pure White B&W Cleanup</div><div class="text-xs text-slate-500">Removes light-gray AI backgrounds</div></div>
+          <input id="cleanBW" type="checkbox" checked class="w-5 h-5 accent-indigo-600" />
+        </label>
+      </div>
+    </section>
+
+    <section class="bg-indigo-900 text-white rounded-2xl p-4 space-y-2">
+      <div class="text-xs uppercase tracking-wider text-indigo-200 font-semibold">KDP Cover Calculator Summary</div>
+      <div class="grid grid-cols-3 gap-2 text-center pt-1">
+        <div class="bg-indigo-800/70 rounded-xl p-2"><div id="statImages" class="text-xl font-bold">0</div><div class="text-xs text-indigo-200">Images</div></div>
+        <div class="bg-indigo-800/70 rounded-xl p-2"><div id="statPages" class="text-xl font-bold">0</div><div class="text-xs text-indigo-200">Total Pages</div></div>
+        <div class="bg-indigo-800/70 rounded-xl p-2"><div id="statTrim" class="text-sm font-bold pt-1">8.5×11"</div><div class="text-xs text-indigo-200">Trim Size</div></div>
+      </div>
+    </section>
+
+    <div id="progressWrap" class="hidden space-y-1">
+      <div class="flex justify-between text-xs font-medium text-slate-600">
+        <span id="progressText">Processing...</span><span id="progressPct">0%</span>
+      </div>
+      <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+        <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all" style="width:0%"></div>
+      </div>
+    </div>
+
+    <button id="generateBtn" disabled class="w-full py-3.5 rounded-2xl bg-indigo-600 text-white font-semibold text-base shadow-md disabled:opacity-40 active:scale-[0.99] transition">
+      Generate & Download KDP PDF
+    </button>
+  </div>
+
+  <script>
+    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+    let images = [];
+    const $ = id => document.getElementById(id);
+
+    function updateSummary() {
+      const count = images.length;
+      let pages = count * ($('singleSided').checked ? 2 : 1);
+      if (count > 0 && $('frontMatter').checked) pages += 2;
+      $('statImages').textContent = count;
+      $('statPages').textContent = pages;
+      $('statTrim').textContent = $('trimSize').value.replace('x', '×') + '"';
+      $('generateBtn').disabled = count === 0;
+      $('clearAllBtn').classList.toggle('hidden', count === 0);
+    }
+
+    function renderList() {
+      $('imageList').innerHTML = '';
+      images.forEach((item, idx) => {
+        const card = document.createElement('div');
+        card.className = 'border border-slate-200 rounded-xl p-2 bg-slate-50 flex flex-col gap-2';
+        card.innerHTML = `
+          <div class="relative aspect-square bg-white rounded-lg overflow-hidden border border-slate-100">
+            <img src="${item.url}" class="w-full h-full object-contain" />
+            <span class="absolute top-1 left-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded">#${idx + 1}</span>
+          </div>
+          <div class="flex justify-between gap-1">
+            <button onclick="moveImg(${idx},-1)" class="flex-1 py-1 text-xs bg-white border rounded-lg">↑</button>
+            <button onclick="moveImg(${idx},1)" class="flex-1 py-1 text-xs bg-white border rounded-lg">↓</button>
+            <button onclick="delImg(${idx})" class="flex-1 py-1 text-xs bg-red-50 text-red-600 border border-red-200 rounded-lg">✕</button>
+          </div>`;
+        $('imageList').appendChild(card);
+      });
+      updateSummary();
+    }
+
+    window.moveImg = (idx, dir) => {
+      const t = idx + dir;
+      if (t < 0 || t >= images.length) return;
+      [images[idx], images[t]] = [images[t], images[idx]];
+      renderList();
+    };
+    window.delImg = (idx) => {
+      URL.revokeObjectURL(images[idx].url);
+      images.splice(idx, 1);
+      renderList();
+    };
+
+    $('fileInput').addEventListener('change', (e) => {
+      Array.from(e.target.files).forEach(file => images.push({ file, url: URL.createObjectURL(file) }));
+      e.target.value = '';
+      renderList();
+    });
+    $('clearAllBtn').addEventListener('click', () => {
+      images.forEach(i => URL.revokeObjectURL(i.url));
+      images = [];
+      renderList();
+    });
+    $('marginRange').addEventListener('input', () => {
+      $('marginVal').textContent = parseFloat($('marginRange').value).toFixed(2) + ' in';
+    });
+    ['trimSize', 'singleSided', 'frontMatter'].forEach(id => $(id).addEventListener('change', updateSummary));
+
+    function processImage(url, applyBW) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, c.width, c.height);
+          ctx.drawImage(img, 0, 0);
+          if (applyBW) {
+            const d = ctx.getImageData(0, 0, c.width, c.height);
+            for (let i = 0; i < d.data.length; i += 4) {
+              const g = 0.299 * d.data[i] + 0.587 * d.data[i+1] + 0.114 * d.data[i+2];
+              const v = g > 200 ? 255 : (g < 90 ? 0 : g);
+              d.data[i] = d.data[i+1] = d.data[i+2] = v;
+            }
+            ctx.putImageData(d, 0, 0);
+          }
+          c.toBlob(async b => resolve(new Uint8Array(await b.arrayBuffer())), 'image/png');
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+
+    $('generateBtn').addEventListener('click', async () => {
+      $('generateBtn').disabled = true;
+      $('progressWrap').classList.remove('hidden');
+      try {
+        const pdf = await PDFDocument.create();
+        const [wIn, hIn] = $('trimSize').value.split('x').map(Number);
+        const pageW = wIn * 72, pageH = hIn * 72;
+        const marginPt = parseFloat($('marginRange').value) * 72;
+        const safeW = pageW - marginPt * 2, safeH = pageH - marginPt * 2;
+
+        if ($('frontMatter').checked) {
+          const p1 = pdf.addPage([pageW, pageH]);
+          const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+          const title = 'This Coloring Book Belongs To:';
+          p1.drawText(title, { x: (pageW - font.widthOfTextAtSize(title, 22)) / 2, y: pageH * 0.6, size: 22, font, color: rgb(0,0,0) });
+          p1.drawLine({ start: { x: pageW * 0.2, y: pageH * 0.52 }, end: { x: pageW * 0.8, y: pageH * 0.52 }, thickness: 1.5, color: rgb(0,0,0) });
+          pdf.addPage([pageW, pageH]);
+        }
+
+        for (let i = 0; i < images.length; i++) {
+          const pct = Math.round(((i + 1) / images.length) * 100);
+          $('progressBar').style.width = pct + '%';
+          $('progressPct').textContent = pct + '%';
+          $('progressText').textContent = `Processing ${i + 1} of ${images.length}...`;
+
+          const bytes = await processImage(images[i].url, $('cleanBW').checked);
+          const emb = await pdf.embedPng(bytes);
+          const page = pdf.addPage([pageW, pageH]);
+          const scale = Math.min(safeW / emb.width, safeH / emb.height);
+          const drawW = emb.width * scale, drawH = emb.height * scale;
+          page.drawImage(emb, { x: (pageW - drawW) / 2, y: (pageH - drawH) / 2, width: drawW, height: drawH });
+
+          if ($('addBorder').checked) {
+            page.drawRectangle({ x: marginPt, y: marginPt, width: safeW, height: safeH, borderColor: rgb(0,0,0), borderWidth: 1.2 });
+          }
+          if ($('singleSided').checked) pdf.addPage([pageW, pageH]);
+        }
+
+        $('progressText').textContent = 'Saving PDF...';
+        const blob = new Blob([await pdf.save()], { type: 'application/pdf' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `KDP_Coloring_Book_${$('trimSize').value}.pdf`;
+        a.click();
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        $('generateBtn').disabled = false;
+        setTimeout(() => $('progressWrap').classList.add('hidden'), 1500);
+      }
+    });
+  </script>
+</body>
+</html>
